@@ -1,0 +1,631 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Pixel Art Editor</title>
+<style>
+*,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
+body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;min-height:100vh;display:flex;flex-direction:column;align-items:center;padding:12px;gap:12px}
+
+/* Toolbar */
+#toolbar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;justify-content:center}
+#toolbar button{background:#16213e;color:#e0e0e0;border:1px solid #0f3460;padding:8px 14px;border-radius:4px;cursor:pointer;font-family:inherit;font-size:13px;min-width:44px;min-height:44px;touch-action:manipulation}
+#toolbar button:hover{background:#1a2d50;border-color:#1a508b}
+#toolbar button.active{background:#0f3460;border-color:#1a508b}
+
+/* Layout */
+#main{display:flex;gap:16px;align-items:flex-start;flex-wrap:wrap;justify-content:center}
+
+/* Canvas */
+#canvas-wrapper{background:#0d1117;border:2px solid #0f3460;border-radius:4px;padding:4px}
+#display-canvas{display:block;image-rendering:pixelated;image-rendering:crisp-edges;touch-action:none;user-select:none;-webkit-user-select:none}
+
+/* Palette */
+#palette-panel{background:#16213e;border:1px solid #0f3460;border-radius:4px;padding:10px;display:flex;flex-direction:column;gap:10px}
+#palette-label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#888}
+#palette-grid{display:grid;grid-template-columns:repeat(6,1fr);gap:3px}
+.swatch{width:32px;height:32px;border-radius:2px;cursor:pointer;border:2px solid transparent;min-width:32px;min-height:32px;touch-action:manipulation}
+.swatch:hover{border-color:#ffffff88}
+.swatch.selected{border-color:#fff;box-shadow:0 0 6px #ffffff44}
+#custom-color{width:100%;height:36px;border:1px solid #0f3460;border-radius:4px;background:#0d1117;cursor:pointer}
+
+/* Frames panel */
+#frames-panel{background:#16213e;border:1px solid #0f3460;border-radius:6px;padding:10px;width:100%;max-width:600px}
+#frames-label{font-size:12px;text-transform:uppercase;letter-spacing:1px;color:#888;margin-bottom:6px;display:flex;align-items:center;gap:8px}
+#frames-list{display:flex;gap:4px;min-height:52px;align-items:center;flex-wrap:wrap}
+.frame-thumb{width:44px;height:44px;border:2px solid #0f3460;border-radius:4px;cursor:pointer;image-rendering:pixelated;image-rendering:crisp-edges;background:#0d1117;transition:border-color .15s}
+.frame-thumb:hover{border-color:#1a508b}
+.frame-thumb.active{border-color:#29ADFF;box-shadow:0 0 6px #29ADFF44}
+.frame-thumb.empty{opacity:.3}
+.frame-btn{background:#0f3460;color:#e0e0e0;border:none;width:28px;height:28px;border-radius:4px;cursor:pointer;font-size:14px;line-height:1;display:flex;align-items:center;justify-content:center;transition:background .15s;touch-action:manipulation}
+.frame-btn:hover{background:#1a508b}
+.frame-btn:disabled{opacity:.3;cursor:default}
+.frame-btn:disabled:hover{background:#0f3460}
+/* Animation preview */
+#anim-section{display:flex;align-items:center;gap:8px;margin-top:8px}
+#preview-canvas{border:2px solid #0f3460;border-radius:4px;background:#0d1117;image-rendering:pixelated;image-rendering:crisp-edges;transition:border-color .3s}
+#btn-play{background:#0f3460;color:#e0e0e0;border:none;width:36px;height:36px;border-radius:6px;cursor:pointer;font-size:16px;transition:background .15s;touch-action:manipulation}
+#btn-play:hover{background:#1a508b}
+/* Status bar */
+#status-bar{background:#16213e;border:1px solid #0f3460;border-radius:6px;padding:6px 14px;font-size:11px;color:#777;width:100%;max-width:600px;text-align:center;font-family:inherit}
+/* Responsive */
+@media(max-width:600px){#display-canvas{max-width:calc(100vw - 32px)!important;max-height:calc(100vw - 32px)!important}}
+/* Button polish */
+#toolbar button{transition:background .15s,border-color .15s,box-shadow .15s;border-radius:6px}
+#toolbar button:active{transform:scale(.96)}
+</style>
+</head>
+<body>
+
+<div id="toolbar">
+  <button id="btn-draw" class="active">Draw</button>
+  <button id="btn-erase">Erase</button>
+  <button id="btn-fill">Fill</button>
+  <span style="color:#555">│</span>
+  <button id="btn-undo" disabled>↩</button>
+  <button id="btn-redo" disabled>↪</button>
+  <span style="color:#555">│</span>
+  <button id="btn-symx">↔ X</button>
+  <button id="btn-symy">↕ Y</button>
+  <button id="btn-symquad">⊞ Q</button>
+  <span style="color:#555">│</span>
+  <span style="color:#888;font-size:12px">Grid:</span>
+  <button data-size="8">8×8</button>
+  <button data-size="16" class="active">16×16</button>
+  <button data-size="32">32×32</button>
+  <button data-size="64">64×64</button>
+  <span style="color:#555">│</span>
+  <button id="btn-zoom-out">− Zoom</button>
+  <button id="btn-zoom-in">+ Zoom</button>
+  <span style="color:#555">│</span>
+  <button id="btn-grid" class="active">▦ Grid</button>
+  <button id="btn-clear">🗑 Clear</button>
+  <span style="color:#555">│</span>
+  <button id="btn-save">💾</button>
+  <button id="btn-load">📂</button>
+</div>
+<input type="file" id="file-load" accept="image/png" style="display:none">
+
+<div id="main">
+  <div id="canvas-wrapper">
+    <canvas id="display-canvas"></canvas>
+  </div>
+  <div id="palette-panel">
+    <div id="palette-label">Palette</div>
+    <div id="palette-grid"></div>
+    <input type="color" id="custom-color" value="#29ADFF">
+  </div>
+</div>
+
+<div id="frames-panel">
+  <div id="frames-label">Frames
+    <button class="frame-btn" id="btn-add-frame" title="Add frame">+</button>
+    <button class="frame-btn" id="btn-dup-frame" title="Duplicate frame">⧉</button>
+    <button class="frame-btn" id="btn-del-frame" title="Delete frame">×</button>
+  </div>
+  <div id="frames-list"></div>
+  <div id="anim-section">
+    <canvas id="preview-canvas" width="64" height="64"></canvas>
+    <button id="btn-play" title="Play/Stop animation">▶</button>
+  </div>
+</div>
+
+<div id="status-bar">16×16  |  Zoom: ×16  |  Frame: 1/1</div>
+
+<script>
+// ── Constants ──
+const VW = 512, VH = 512;
+
+// ── State ──
+let gridSize = 16, showGrid = true, selColor = '#29ADFF';
+let tool = 'draw';  // draw | erase | fill
+let vp = { scale: 16, ox: 0, oy: 0 };  // viewport
+
+// Drawing / panning transient state
+let drawing = false, lgx, lgy;
+let panning = false, psx, psy, pox, poy;
+
+// ── UndoManager (per-frame) ──
+const MAX_UNDO = 50;
+let operationActive = false;
+let undoStack = [], redoStack = [];  // aliases for current frame's stacks
+
+function beginOperation() {
+  operationActive = true;
+  const ctx = src.getContext('2d');
+  undoStack.push(ctx.getImageData(0, 0, src.width, src.height));
+  if (undoStack.length > MAX_UNDO) undoStack.shift();
+  redoStack.length = 0;
+  updateUndoButtons();
+}
+function endOperation() { operationActive = false; saveFrame(); renderFrameThumbnails(); updateUndoButtons(); updateStatus(); }
+function undo() {
+  if (!undoStack.length) return;
+  const ctx = src.getContext('2d');
+  redoStack.push(ctx.getImageData(0, 0, src.width, src.height));
+  ctx.putImageData(undoStack.pop(), 0, 0);
+  saveFrame(); renderFrameThumbnails(); updateUndoButtons(); render(); updateStatus();
+}
+function redo() {
+  if (!redoStack.length) return;
+  const ctx = src.getContext('2d');
+  undoStack.push(ctx.getImageData(0, 0, src.width, src.height));
+  ctx.putImageData(redoStack.pop(), 0, 0);
+  saveFrame(); renderFrameThumbnails(); updateUndoButtons(); render(); updateStatus();
+}
+function updateUndoButtons() {
+  btnUndo.disabled = !undoStack.length;
+  btnRedo.disabled = !redoStack.length;
+}
+
+// ── Symmetry state ──
+let symX = false, symY = false, symQuad = false;
+
+function symPoints(gx, gy) {
+  const pts = [[gx, gy]];
+  if (symX) pts.push([gridSize - 1 - gx, gy]);
+  if (symY) pts.push([gx, gridSize - 1 - gy]);
+  if (symQuad) {
+    if (!symX) pts.push([gridSize - 1 - gx, gy]);
+    if (!symY) pts.push([gx, gridSize - 1 - gy]);
+    pts.push([gridSize - 1 - gx, gridSize - 1 - gy]);
+  }
+  return pts;
+}
+
+// ── Canvases ──
+const src = document.createElement('canvas');
+const display = document.getElementById('display-canvas');
+const dCtx = display.getContext('2d');
+display.width = VW; display.height = VH;
+display.style.width = VW + 'px'; display.style.height = VH + 'px';
+src.width = src.height = gridSize;
+
+// ── Coordinate mapping ──
+function screenToGrid(cx, cy) {
+  const r = display.getBoundingClientRect();
+  return { x: Math.floor((cx - r.left + vp.ox) / vp.scale), y: Math.floor((cy - r.top + vp.oy) / vp.scale) };
+}
+function clampVP() {
+  const tw = vp.scale * gridSize, th = vp.scale * gridSize;
+  vp.ox = Math.max(0, Math.min(vp.ox, Math.max(0, tw - VW)));
+  vp.oy = Math.max(0, Math.min(vp.oy, Math.max(0, th - VH)));
+}
+
+// ── Render ──
+function render() {
+  const s = vp.scale; dCtx.imageSmoothingEnabled = false;
+  dCtx.fillStyle = '#0d1117'; dCtx.fillRect(0, 0, VW, VH);
+  const h = Math.max(2, Math.floor(s / 2));
+  dCtx.fillStyle = '#111'; dCtx.fillRect(0, 0, VW, VH);
+  dCtx.fillStyle = '#1a1a1a';
+  for (let y = 0; y < VH + s; y += h * 2)
+    for (let x = 0; x < VW + s; x += h * 2) { dCtx.fillRect(x, y, h, h); dCtx.fillRect(x + h, y + h, h, h); }
+  dCtx.save();
+  dCtx.setTransform(s, 0, 0, s, -vp.ox, -vp.oy);
+  dCtx.drawImage(src, 0, 0);
+  dCtx.restore();
+  if (showGrid) drawGrid();
+}
+function drawGrid() {
+  const s = vp.scale; dCtx.strokeStyle = '#ffffff18'; dCtx.lineWidth = 1;
+  const sx = vp.ox % s, sy = vp.oy % s;
+  for (let x = -sx; x <= VW; x += s) { dCtx.beginPath(); dCtx.moveTo(x + .5, 0); dCtx.lineTo(x + .5, VH); dCtx.stroke(); }
+  for (let y = -sy; y <= VH; y += s) { dCtx.beginPath(); dCtx.moveTo(0, y + .5); dCtx.lineTo(VW, y + .5); dCtx.stroke(); }
+}
+
+// ── Drawing primitives ──
+function drawPixel(gx, gy) {
+  const pts = symPoints(gx, gy);
+  const c = src.getContext('2d');
+  for (const [px, py] of pts) {
+    if (px < 0 || py < 0 || px >= gridSize || py >= gridSize) continue;
+    if (tool === 'erase') c.clearRect(px, py, 1, 1);
+    else { c.fillStyle = selColor; c.fillRect(px, py, 1, 1); }
+  }
+}
+function bresenham(x0, y0, x1, y1) {
+  const pts = [], dx = Math.abs(x1 - x0), dy = -Math.abs(y1 - y0);
+  let sx = x0 < x1 ? 1 : -1, sy = y0 < y1 ? 1 : -1, err = dx + dy;
+  for (;;) {
+    pts.push({ x: x0, y: y0 });
+    if (x0 === x1 && y0 === y1) break;
+    const e2 = 2 * err;
+    if (e2 >= dy) { err += dy; x0 += sx; }
+    if (e2 <= dx) { err += dx; y0 += sy; }
+  }
+  return pts;
+}
+function floodFill(gx, gy) {
+  if (gx < 0 || gy < 0 || gx >= gridSize || gy >= gridSize) return;
+  const c = src.getContext('2d'), img = c.getImageData(0, 0, gridSize, gridSize), d = img.data;
+  const idx = (gy * gridSize + gx) * 4;
+  const [tr, tg, tb, ta] = [d[idx], d[idx + 1], d[idx + 2], d[idx + 3]];
+  // Resolve fill color to RGBA
+  const tmp = document.createElement('canvas'); tmp.width = tmp.height = 1;
+  const tc = tmp.getContext('2d'); tc.fillStyle = selColor; tc.fillRect(0, 0, 1, 1);
+  const f = tc.getImageData(0, 0, 1, 1).data;
+  const [fr, fg, fb, fa] = [f[0], f[1], f[2], f[3]];
+  if (tr === fr && tg === fg && tb === fb && ta === fa) return;
+  // BFS with head-indexed queue (O(1) dequeue)
+  const q = [gx, gy]; let head = 0;
+  const vis = new Uint8Array(gridSize * gridSize); vis[gy * gridSize + gx] = 1;
+  while (head < q.length) {
+    const x = q[head++], y = q[head++], i = (y * gridSize + x) * 4;
+    d[i] = fr; d[i + 1] = fg; d[i + 2] = fb; d[i + 3] = fa;
+    for (const [nx, ny] of [[x - 1, y], [x + 1, y], [x, y - 1], [x, y + 1]]) {
+      if (nx < 0 || ny < 0 || nx >= gridSize || ny >= gridSize) continue;
+      if (vis[ny * gridSize + nx]) continue;
+      const ni = (ny * gridSize + nx) * 4;
+      if (d[ni] === tr && d[ni + 1] === tg && d[ni + 2] === tb && d[ni + 3] === ta) {
+        vis[ny * gridSize + nx] = 1; q.push(nx, ny);
+      }
+    }
+  }
+  c.putImageData(img, 0, 0);
+}
+
+// ── Multi-touch / pinch state ──
+let pointers = {}, pinchDist = 0, pinchScale = 1;
+
+// ── Pointer events (draw / erase / fill / pan / pinch) ──
+display.addEventListener('pointerdown', e => {
+  pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+  if (Object.keys(pointers).length === 2) {
+    const pts = Object.values(pointers);
+    pinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    pinchScale = vp.scale; drawing = panning = false;
+    return;
+  }
+  if (e.button === 1 || (e.button === 0 && e.ctrlKey)) {
+    panning = true; psx = e.clientX; psy = e.clientY; pox = vp.ox; poy = vp.oy;
+    display.setPointerCapture(e.pointerId); e.preventDefault(); return;
+  }
+  if (e.button !== 0) return;
+  const { x, y } = screenToGrid(e.clientX, e.clientY);
+  if (tool === 'fill') { beginOperation(); floodFill(x, y); endOperation(); render(); return; }
+  beginOperation(); drawing = true; lgx = x; lgy = y; drawPixel(x, y); render();
+  display.setPointerCapture(e.pointerId);
+});
+display.addEventListener('pointermove', e => {
+  if (e.pointerId in pointers) pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+  if (Object.keys(pointers).length === 2) {
+    const pts = Object.values(pointers);
+    const d = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+    if (pinchDist > 0) {
+      const ns = Math.max(1, Math.min(32, Math.round(pinchScale * d / pinchDist)));
+      if (ns !== vp.scale) {
+        const mx = (pts[1].x + pts[0].x) / 2, my = (pts[1].y + pts[0].y) / 2;
+        const r = display.getBoundingClientRect();
+        const cx = mx - r.left + vp.ox, cy = my - r.top + vp.oy;
+        const old = vp.scale; vp.scale = ns;
+        vp.ox = cx * (ns / old) - (mx - r.left);
+        vp.oy = cy * (ns / old) - (my - r.top);
+        clampVP(); render(); updateStatus();
+      }
+    }
+    return;
+  }
+  if (panning) { vp.ox = pox - (e.clientX - psx); vp.oy = poy - (e.clientY - psy); clampVP(); render(); updateStatus(); return; }
+  if (!drawing) return;
+  const { x, y } = screenToGrid(e.clientX, e.clientY);
+  for (const p of bresenham(lgx, lgy, x, y)) drawPixel(p.x, p.y);
+  lgx = x; lgy = y; render();
+});
+display.addEventListener('pointerup', e => {
+  delete pointers[e.pointerId];
+  if (Object.keys(pointers).length < 2) pinchDist = 0;
+  if (drawing) endOperation();
+  drawing = panning = false;
+  display.releasePointerCapture(e.pointerId);
+});
+display.addEventListener('contextmenu', e => e.preventDefault());
+
+// ── Zoom (wheel, centered on cursor) ──
+display.addEventListener('wheel', e => {
+  e.preventDefault();
+  const old = vp.scale, ns = e.deltaY < 0 ? Math.min(32, old * 2) : Math.max(1, old / 2);
+  if (ns === old) return;
+  const r = display.getBoundingClientRect();
+  const cx = e.clientX - r.left + vp.ox, cy = e.clientY - r.top + vp.oy;
+  vp.scale = ns;
+  vp.ox = cx * (ns / old) - (e.clientX - r.left);
+  vp.oy = cy * (ns / old) - (e.clientY - r.top);
+  clampVP(); render();
+}, { passive: false });
+
+// ── Cursor ──
+function updateCursor() {
+  display.style.cursor = tool === 'draw' ? 'crosshair' : tool === 'erase' ? 'cell' : tool === 'fill' ? 'pointer' : 'default';
+}
+
+// ── Tool buttons ──
+const tools = { draw: 'btn-draw', erase: 'btn-erase', fill: 'btn-fill' };
+for (const [t, id] of Object.entries(tools)) {
+  document.getElementById(id).onclick = () => {
+    tool = t;
+    for (const b of Object.values(tools)) document.getElementById(b).classList.remove('active');
+    document.getElementById(id).classList.add('active');
+    updateCursor();
+  };
+}
+
+// ── Zoom buttons ──
+document.getElementById('btn-zoom-in').onclick = () => {
+  if (vp.scale >= 32) return; vp.scale = Math.min(32, vp.scale * 2); clampVP(); render();
+};
+document.getElementById('btn-zoom-out').onclick = () => {
+  if (vp.scale <= 1) return; vp.scale = Math.max(1, vp.scale / 2); clampVP(); render();
+};
+
+// ── Canvas resize (grid change) ──
+function resizeCanvas(size) {
+  saveFrame();
+  const oldFrames = frames.map(f => {
+    const c = document.createElement('canvas');
+    c.width = c.height = size;
+    c.getContext('2d').drawImage(f, 0, 0, gridSize, gridSize, 0, 0, size, size);
+    return c;
+  });
+  gridSize = src.width = src.height = size;
+  for (let i = 0; i < MAX_FRAMES; i++) {
+    frames[i].width = frames[i].height = size;
+    frames[i].getContext('2d').drawImage(oldFrames[i], 0, 0);
+  }
+  src.getContext('2d').drawImage(frames[currentFrame], 0, 0);
+  undoStack.length = 0; redoStack.length = 0; updateUndoButtons();
+  clampVP(); render(); renderFrameThumbnails(); updateStatus();
+}
+// ── Clear ──
+function clearCanvas() { beginOperation(); src.getContext('2d').clearRect(0, 0, gridSize, gridSize); endOperation(); render(); }
+
+// ── PNG Save ──
+function savePNG() {
+  const c = document.createElement('canvas'); c.width = c.height = gridSize;
+  const ct = c.getContext('2d'); ct.imageSmoothingEnabled = false;
+  ct.drawImage(src, 0, 0);
+  c.toBlob(blob => {
+    const a = document.createElement('a'), url = URL.createObjectURL(blob);
+    a.href = url; a.download = 'pixelart_' + gridSize + '.png'; a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+// ── PNG Load ──
+function loadPNG(file) {
+  const img = new Image();
+  img.onload = () => {
+    const c = document.createElement('canvas'); c.width = c.height = gridSize;
+    const ct = c.getContext('2d'); ct.imageSmoothingEnabled = false;
+    ct.drawImage(img, 0, 0, gridSize, gridSize);
+    beginOperation();
+    src.getContext('2d').drawImage(c, 0, 0);
+    endOperation(); render();
+  };
+  img.src = URL.createObjectURL(file);
+}
+document.getElementById('file-load').onchange = e => {
+  if (e.target.files[0]) loadPNG(e.target.files[0]);
+  e.target.value = '';
+};
+
+// ── Palette ──
+const colors = [
+  '#000000','#FFFFFF','#FF004D','#FFA300','#FFFF27','#00E436','#29ADFF','#83769C','#FF77A8','#FFCCAA',
+  '#7E2553','#008751','#AB5236','#5F574F','#C2C3C7','#FFF1E8','#8BAC0F','#306230',
+  '#626262','#001FB0','#4F008E','#A80079','#D20000','#9B6E00'
+];
+const paletteGrid = document.getElementById('palette-grid');
+let selSwatch = null;
+colors.forEach(c => {
+  const s = document.createElement('div'); s.className = 'swatch'; s.style.background = c;
+  s.onclick = () => {
+    selColor = c; document.getElementById('custom-color').value = c;
+    if (selSwatch) selSwatch.classList.remove('selected');
+    (selSwatch = s).classList.add('selected');
+  };
+  paletteGrid.appendChild(s);
+});
+document.getElementById('custom-color').oninput = e => {
+  selColor = e.target.value;
+  if (selSwatch) { selSwatch.classList.remove('selected'); selSwatch = null; }
+};
+
+// ── Grid size buttons ──
+document.querySelectorAll('#toolbar button[data-size]').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('#toolbar button[data-size]').forEach(x => x.classList.remove('active'));
+    b.classList.add('active'); resizeCanvas(+b.dataset.size);
+  };
+});
+
+// ── Grid toggle + clear ──
+document.getElementById('btn-grid').onclick = function () { showGrid = !showGrid; this.classList.toggle('active', showGrid); render(); };
+document.getElementById('btn-clear').onclick = clearCanvas;
+
+// ── Undo/redo buttons ──
+const btnUndo = document.getElementById('btn-undo'), btnRedo = document.getElementById('btn-redo');
+btnUndo.onclick = undo; btnRedo.onclick = redo;
+
+// ── Symmetry buttons ──
+const btnSymX = document.getElementById('btn-symx'), btnSymY = document.getElementById('btn-symy'), btnSymQuad = document.getElementById('btn-symquad');
+function toggleSym(btn, get, set) {
+  return () => { const v = !get(); btn.classList.toggle('active', v); set(v); };
+}
+btnSymX.onclick = toggleSym(btnSymX, () => symX, v => { symX = v; });
+btnSymY.onclick = toggleSym(btnSymY, () => symY, v => { symY = v; });
+btnSymQuad.onclick = toggleSym(btnSymQuad, () => symQuad, v => { symQuad = v; });
+
+// ── Save / Load buttons ──
+document.getElementById('btn-save').onclick = savePNG;
+document.getElementById('btn-load').onclick = () => document.getElementById('file-load').click();
+
+// ── Keyboard shortcuts ──
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && !e.altKey && !e.metaKey) {
+    if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
+    else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
+    else if (e.key === 's' || e.key === 'S') { e.preventDefault(); savePNG(); }
+  }
+});
+
+// ── Animation Frames ──
+const MAX_FRAMES = 8;
+let frames = [];
+let frameUndos = [], frameRedos = [];  // per-frame undo/redo stacks
+let currentFrame = 0;
+let frameCount = 1;
+
+function initFrames() {
+  frames = []; frameUndos = []; frameRedos = [];
+  for (let i = 0; i < MAX_FRAMES; i++) {
+    const c = document.createElement('canvas');
+    c.width = c.height = gridSize;
+    frames.push(c);
+    frameUndos.push([]); frameRedos.push([]);
+  }
+  frames[0].getContext('2d').drawImage(src, 0, 0);
+  currentFrame = 0; frameCount = 1;
+  // Set baseline undo snapshot for frame 0
+  undoStack = frameUndos[0]; redoStack = frameRedos[0];
+  undoStack.push(frames[0].getContext('2d').getImageData(0, 0, gridSize, gridSize));
+  renderFrameThumbnails(); updateUndoButtons();
+}
+function saveFrame() {
+  frames[currentFrame].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  frames[currentFrame].getContext('2d').drawImage(src, 0, 0);
+}
+function loadFrame(idx) {
+  if (idx === currentFrame) return;
+  saveFrame();
+  currentFrame = idx;
+  // Swap to this frame's undo/redo stacks
+  undoStack = frameUndos[currentFrame];
+  redoStack = frameRedos[currentFrame];
+  src.getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  src.getContext('2d').drawImage(frames[currentFrame], 0, 0);
+  render(); updateFrameHighlight(); updateUndoButtons(); updateStatus();
+}
+function addFrame() {
+  if (frameCount >= MAX_FRAMES) return;
+  saveFrame(); frameCount++; currentFrame = frameCount - 1;
+  frames[currentFrame].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  // Reset undo/redo for new frame
+  frameUndos[currentFrame] = []; frameRedos[currentFrame] = [];
+  undoStack = frameUndos[currentFrame]; redoStack = frameRedos[currentFrame];
+  render(); renderFrameThumbnails(); updateFrameHighlight(); updateUndoButtons(); updateStatus();
+}
+function deleteFrame() {
+  if (frameCount <= 1) return;
+  saveFrame();
+  for (let i = currentFrame; i < frameCount - 1; i++) {
+    frames[i].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+    frames[i].getContext('2d').drawImage(frames[i + 1], 0, 0);
+    frameUndos[i] = frameUndos[i + 1];
+    frameRedos[i] = frameRedos[i + 1];
+  }
+  frames[frameCount - 1].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  frameUndos[frameCount - 1] = []; frameRedos[frameCount - 1] = [];
+  frameCount--;
+  if (currentFrame >= frameCount) currentFrame = frameCount - 1;
+  undoStack = frameUndos[currentFrame]; redoStack = frameRedos[currentFrame];
+  src.getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  src.getContext('2d').drawImage(frames[currentFrame], 0, 0);
+  render(); renderFrameThumbnails(); updateFrameHighlight(); updateUndoButtons(); updateStatus();
+}
+function duplicateFrame() {
+  if (frameCount >= MAX_FRAMES) return;
+  saveFrame();
+  for (let i = frameCount; i > currentFrame + 1; i--) {
+    frames[i].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+    frames[i].getContext('2d').drawImage(frames[i - 1], 0, 0);
+    frameUndos[i] = frameUndos[i - 1];
+    frameRedos[i] = frameRedos[i - 1];
+  }
+  frameCount++; currentFrame++;
+  frames[currentFrame].getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  frames[currentFrame].getContext('2d').drawImage(frames[currentFrame - 1], 0, 0);
+  // Copy the undo history too
+  frameUndos[currentFrame] = frameUndos[currentFrame - 1].slice();
+  frameRedos[currentFrame] = [];
+  undoStack = frameUndos[currentFrame]; redoStack = frameRedos[currentFrame];
+  src.getContext('2d').clearRect(0, 0, gridSize, gridSize);
+  src.getContext('2d').drawImage(frames[currentFrame], 0, 0);
+  render(); renderFrameThumbnails(); updateFrameHighlight(); updateUndoButtons(); updateStatus();
+}
+function renderFrameThumbnails() {
+  const list = document.getElementById('frames-list');
+  list.innerHTML = '';
+  for (let i = 0; i < MAX_FRAMES; i++) {
+    const c = document.createElement('canvas');
+    c.width = c.height = 44;
+    c.className = 'frame-thumb' + (i === currentFrame ? ' active' : '') + (i >= frameCount ? ' empty' : '');
+    const ct = c.getContext('2d'); ct.imageSmoothingEnabled = false;
+    if (i < frameCount) ct.drawImage(frames[i], 0, 0, gridSize, gridSize, 0, 0, 44, 44);
+    c.addEventListener('click', () => loadFrame(i));
+    c.style.touchAction = 'manipulation';
+    list.appendChild(c);
+  }
+}
+function updateFrameHighlight() {
+  document.querySelectorAll('.frame-thumb').forEach((c, i) => {
+    c.classList.toggle('active', i === currentFrame);
+    c.classList.toggle('empty', i >= frameCount);
+  });
+}
+
+// ── Frame control buttons ──
+document.getElementById('btn-add-frame').onclick = addFrame;
+document.getElementById('btn-dup-frame').onclick = duplicateFrame;
+document.getElementById('btn-del-frame').onclick = deleteFrame;
+
+// ── Animation Preview ──
+let animRunning = false, animInterval = null, animFrame = 0;
+const previewCanvas = document.getElementById('preview-canvas');
+const pctx = previewCanvas.getContext('2d');
+pctx.imageSmoothingEnabled = false;
+
+function startAnim() {
+  if (animRunning) return;
+  animRunning = true; animFrame = currentFrame;
+  previewCanvas.style.borderColor = '#1a508b';
+  animInterval = setInterval(() => {
+    animFrame = (animFrame + 1) % frameCount;
+    pctx.clearRect(0, 0, 64, 64);
+    pctx.drawImage(frames[animFrame], 0, 0, gridSize, gridSize, 0, 0, 64, 64);
+  }, 100);
+  document.getElementById('btn-play').textContent = '\u23f9';
+}
+function stopAnim() {
+  animRunning = false; clearInterval(animInterval); animInterval = null;
+  previewCanvas.style.borderColor = '#0f3460';
+  document.getElementById('btn-play').textContent = '\u25b6';
+  pctx.clearRect(0, 0, 64, 64);
+  pctx.drawImage(frames[currentFrame], 0, 0, gridSize, gridSize, 0, 0, 64, 64);
+}
+function toggleAnim() { animRunning ? stopAnim() : startAnim(); }
+document.getElementById('btn-play').onclick = toggleAnim;
+
+// ── Responsive ──
+function updateCanvasSize() {
+  const maxW = Math.min(512, window.innerWidth - 32);
+  display.style.width = maxW + 'px';
+  display.style.height = maxW + 'px';
+}
+window.addEventListener('resize', () => { updateCanvasSize(); });
+
+// ── Status bar ──
+function updateStatus() {
+  document.getElementById('status-bar').textContent =
+    gridSize + '\u00d7' + gridSize + '  |  Zoom: \u00d7' + vp.scale + '  |  Frame: ' + (currentFrame + 1) + '/' + frameCount;
+}
+
+// ── Init ──
+initFrames();
+paletteGrid.querySelector('.swatch')?.click();
+updateCursor(); render(); updateStatus(); updateCanvasSize();
+</script>
+
+</body>
+</html>
