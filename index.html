@@ -3,6 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 4 4%22%3E%3Crect width=%222%22 height=%222%22 fill=%22%23FF004D%22/%3E%3Crect x=%222%22 width=%222%22 height=%222%22 fill=%22%23FFA300%22/%3E%3Crect y=%222%22 width=%222%22 height=%222%22 fill=%22%2329ADFF%22/%3E%3Crect x=%222%22 y=%222%22 width=%222%22 height=%222%22 fill=%22%2300E436%22/%3E%3C/svg%3E">
 <title>Pixel Art Editor</title>
 <style>
 *,*::before,*::after{box-sizing:border-box;margin:0;padding:0}
@@ -59,16 +60,16 @@ body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;min-he
 <body>
 
 <div id="toolbar">
-  <button id="btn-draw" class="active">Draw</button>
-  <button id="btn-erase">Erase</button>
-  <button id="btn-fill">Fill</button>
+  <button id="btn-draw" class="active" title="Draw (B)">Draw</button>
+  <button id="btn-erase" title="Erase (E)">Erase</button>
+  <button id="btn-fill" title="Fill (F)">Fill</button>
   <span style="color:#555">│</span>
-  <button id="btn-undo" disabled>↩</button>
-  <button id="btn-redo" disabled>↪</button>
+  <button id="btn-undo" disabled title="Undo (Ctrl+Z)">↩</button>
+  <button id="btn-redo" disabled title="Redo (Ctrl+Y)">↪</button>
   <span style="color:#555">│</span>
-  <button id="btn-symx">↔ X</button>
-  <button id="btn-symy">↕ Y</button>
-  <button id="btn-symquad">⊞ Q</button>
+  <button id="btn-symx" title="Mirror left/right">↔ X</button>
+  <button id="btn-symy" title="Mirror top/bottom">↕ Y</button>
+  <button id="btn-symquad" title="Mirror into all four quadrants">⊞ Q</button>
   <span style="color:#555">│</span>
   <span style="color:#888;font-size:12px">Grid:</span>
   <button data-size="8">8×8</button>
@@ -79,11 +80,12 @@ body{background:#1a1a2e;color:#e0e0e0;font-family:'Courier New',monospace;min-he
   <button id="btn-zoom-out">− Zoom</button>
   <button id="btn-zoom-in">+ Zoom</button>
   <span style="color:#555">│</span>
-  <button id="btn-grid" class="active">▦ Grid</button>
-  <button id="btn-clear">🗑 Clear</button>
+  <button id="btn-grid" class="active" title="Toggle grid lines">▦ Grid</button>
+  <button id="btn-clear" title="Clear the current frame">🗑 Clear</button>
   <span style="color:#555">│</span>
-  <button id="btn-save">💾</button>
-  <button id="btn-load">📂</button>
+  <button id="btn-save" title="Save current frame as PNG (Ctrl+S)">💾 PNG</button>
+  <button id="btn-sheet" title="Export all frames as a sprite sheet">🎞 Sheet</button>
+  <button id="btn-load" title="Load a PNG into the current frame">📂 Open</button>
 </div>
 <input type="file" id="file-load" accept="image/png" style="display:none">
 
@@ -120,7 +122,8 @@ const VW = 512, VH = 512;
 // ── State ──
 let gridSize = 16, showGrid = true, selColor = '#29ADFF';
 let tool = 'draw';  // draw | erase | fill
-let vp = { scale: 16, ox: 0, oy: 0 };  // viewport
+let vp = { scale: 32, ox: 0, oy: 0 };  // viewport
+const MAX_SCALE = 64;
 
 // Drawing / panning transient state
 let drawing = false, lgx, lgy;
@@ -183,36 +186,61 @@ display.style.width = VW + 'px'; display.style.height = VH + 'px';
 src.width = src.height = gridSize;
 
 // ── Coordinate mapping ──
-function screenToGrid(cx, cy) {
+// The canvas can be shown smaller than VW×VH (mobile), so convert CSS pixels to canvas pixels
+function toCanvasPx(cx, cy) {
   const r = display.getBoundingClientRect();
-  return { x: Math.floor((cx - r.left + vp.ox) / vp.scale), y: Math.floor((cy - r.top + vp.oy) / vp.scale) };
+  return { x: (cx - r.left) * VW / r.width, y: (cy - r.top) * VH / r.height };
 }
+function screenToGrid(cx, cy) {
+  const p = toCanvasPx(cx, cy);
+  return { x: Math.floor((p.x + vp.ox) / vp.scale), y: Math.floor((p.y + vp.oy) / vp.scale) };
+}
+// Keep the image in view; when it is smaller than the view it is centered (negative offset)
 function clampVP() {
-  const tw = vp.scale * gridSize, th = vp.scale * gridSize;
-  vp.ox = Math.max(0, Math.min(vp.ox, Math.max(0, tw - VW)));
-  vp.oy = Math.max(0, Math.min(vp.oy, Math.max(0, th - VH)));
+  const size = vp.scale * gridSize;
+  if (size <= VW) { vp.ox = vp.oy = -(VW - size) / 2; return; }
+  vp.ox = Math.max(0, Math.min(vp.ox, size - VW));
+  vp.oy = Math.max(0, Math.min(vp.oy, size - VH));
+}
+function fitScale() { return Math.min(MAX_SCALE, Math.floor(VW / gridSize)); }
+function zoomAt(ns, px, py) {
+  ns = Math.max(1, Math.min(MAX_SCALE, ns));
+  if (ns === vp.scale) return;
+  const old = vp.scale;
+  vp.ox = (px + vp.ox) * (ns / old) - px;
+  vp.oy = (py + vp.oy) * (ns / old) - py;
+  vp.scale = ns;
+  clampVP(); render(); updateStatus();
 }
 
 // ── Render ──
 function render() {
   const s = vp.scale; dCtx.imageSmoothingEnabled = false;
   dCtx.fillStyle = '#0d1117'; dCtx.fillRect(0, 0, VW, VH);
-  const h = Math.max(2, Math.floor(s / 2));
-  dCtx.fillStyle = '#111'; dCtx.fillRect(0, 0, VW, VH);
-  dCtx.fillStyle = '#1a1a1a';
-  for (let y = 0; y < VH + s; y += h * 2)
-    for (let x = 0; x < VW + s; x += h * 2) { dCtx.fillRect(x, y, h, h); dCtx.fillRect(x + h, y + h, h, h); }
+  // Transparency checkerboard, only behind the image itself
+  const x0 = -vp.ox, y0 = -vp.oy, size = s * gridSize;
+  const left = Math.max(0, x0), top = Math.max(0, y0);
+  const right = Math.min(VW, x0 + size), bottom = Math.min(VH, y0 + size);
+  const h = Math.max(4, Math.floor(s / 2));
   dCtx.save();
+  dCtx.beginPath(); dCtx.rect(left, top, right - left, bottom - top); dCtx.clip();
+  dCtx.fillStyle = '#111'; dCtx.fillRect(left, top, right - left, bottom - top);
+  dCtx.fillStyle = '#1c1c1c';
+  for (let y = y0; y < bottom; y += h * 2)
+    for (let x = x0; x < right; x += h * 2) { dCtx.fillRect(x, y, h, h); dCtx.fillRect(x + h, y + h, h, h); }
   dCtx.setTransform(s, 0, 0, s, -vp.ox, -vp.oy);
   dCtx.drawImage(src, 0, 0);
   dCtx.restore();
-  if (showGrid) drawGrid();
+  if (showGrid && s >= 4) drawGrid(left, top, right, bottom);
+  updatePreview();
 }
-function drawGrid() {
+function drawGrid(left, top, right, bottom) {
   const s = vp.scale; dCtx.strokeStyle = '#ffffff18'; dCtx.lineWidth = 1;
-  const sx = vp.ox % s, sy = vp.oy % s;
-  for (let x = -sx; x <= VW; x += s) { dCtx.beginPath(); dCtx.moveTo(x + .5, 0); dCtx.lineTo(x + .5, VH); dCtx.stroke(); }
-  for (let y = -sy; y <= VH; y += s) { dCtx.beginPath(); dCtx.moveTo(0, y + .5); dCtx.lineTo(VW, y + .5); dCtx.stroke(); }
+  for (let i = 0; i <= gridSize; i++) {
+    const x = Math.round(i * s - vp.ox), y = Math.round(i * s - vp.oy);
+    if (x >= left && x <= right) { dCtx.beginPath(); dCtx.moveTo(x + .5, top); dCtx.lineTo(x + .5, bottom); dCtx.stroke(); }
+    if (y >= top && y <= bottom) { dCtx.beginPath(); dCtx.moveTo(left, y + .5); dCtx.lineTo(right, y + .5); dCtx.stroke(); }
+  }
 }
 
 // ── Drawing primitives ──
@@ -275,7 +303,10 @@ display.addEventListener('pointerdown', e => {
   if (Object.keys(pointers).length === 2) {
     const pts = Object.values(pointers);
     pinchDist = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-    pinchScale = vp.scale; drawing = panning = false;
+    pinchScale = vp.scale;
+    // The first finger already started a stroke: roll it back, this is a pinch
+    if (drawing && undoStack.length) { src.getContext('2d').putImageData(undoStack.pop(), 0, 0); render(); updateUndoButtons(); }
+    drawing = panning = false;
     return;
   }
   if (e.button === 1 || (e.button === 0 && e.ctrlKey)) {
@@ -294,25 +325,22 @@ display.addEventListener('pointermove', e => {
     const pts = Object.values(pointers);
     const d = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
     if (pinchDist > 0) {
-      const ns = Math.max(1, Math.min(32, Math.round(pinchScale * d / pinchDist)));
-      if (ns !== vp.scale) {
-        const mx = (pts[1].x + pts[0].x) / 2, my = (pts[1].y + pts[0].y) / 2;
-        const r = display.getBoundingClientRect();
-        const cx = mx - r.left + vp.ox, cy = my - r.top + vp.oy;
-        const old = vp.scale; vp.scale = ns;
-        vp.ox = cx * (ns / old) - (mx - r.left);
-        vp.oy = cy * (ns / old) - (my - r.top);
-        clampVP(); render(); updateStatus();
-      }
+      const m = toCanvasPx((pts[1].x + pts[0].x) / 2, (pts[1].y + pts[0].y) / 2);
+      zoomAt(Math.round(pinchScale * d / pinchDist), m.x, m.y);
     }
     return;
   }
-  if (panning) { vp.ox = pox - (e.clientX - psx); vp.oy = poy - (e.clientY - psy); clampVP(); render(); updateStatus(); return; }
+  if (panning) {
+    const k = VW / display.getBoundingClientRect().width;
+    vp.ox = pox - (e.clientX - psx) * k; vp.oy = poy - (e.clientY - psy) * k;
+    clampVP(); render(); return;
+  }
   if (!drawing) return;
   const { x, y } = screenToGrid(e.clientX, e.clientY);
   for (const p of bresenham(lgx, lgy, x, y)) drawPixel(p.x, p.y);
   lgx = x; lgy = y; render();
 });
+display.addEventListener('pointercancel', e => { delete pointers[e.pointerId]; if (drawing) endOperation(); drawing = panning = false; });
 display.addEventListener('pointerup', e => {
   delete pointers[e.pointerId];
   if (Object.keys(pointers).length < 2) pinchDist = 0;
@@ -325,14 +353,8 @@ display.addEventListener('contextmenu', e => e.preventDefault());
 // ── Zoom (wheel, centered on cursor) ──
 display.addEventListener('wheel', e => {
   e.preventDefault();
-  const old = vp.scale, ns = e.deltaY < 0 ? Math.min(32, old * 2) : Math.max(1, old / 2);
-  if (ns === old) return;
-  const r = display.getBoundingClientRect();
-  const cx = e.clientX - r.left + vp.ox, cy = e.clientY - r.top + vp.oy;
-  vp.scale = ns;
-  vp.ox = cx * (ns / old) - (e.clientX - r.left);
-  vp.oy = cy * (ns / old) - (e.clientY - r.top);
-  clampVP(); render();
+  const p = toCanvasPx(e.clientX, e.clientY);
+  zoomAt(e.deltaY < 0 ? vp.scale * 2 : vp.scale / 2, p.x, p.y);
 }, { passive: false });
 
 // ── Cursor ──
@@ -352,12 +374,8 @@ for (const [t, id] of Object.entries(tools)) {
 }
 
 // ── Zoom buttons ──
-document.getElementById('btn-zoom-in').onclick = () => {
-  if (vp.scale >= 32) return; vp.scale = Math.min(32, vp.scale * 2); clampVP(); render();
-};
-document.getElementById('btn-zoom-out').onclick = () => {
-  if (vp.scale <= 1) return; vp.scale = Math.max(1, vp.scale / 2); clampVP(); render();
-};
+document.getElementById('btn-zoom-in').onclick = () => zoomAt(vp.scale * 2, VW / 2, VH / 2);
+document.getElementById('btn-zoom-out').onclick = () => zoomAt(vp.scale / 2, VW / 2, VH / 2);
 
 // ── Canvas resize (grid change) ──
 function resizeCanvas(size) {
@@ -365,16 +383,21 @@ function resizeCanvas(size) {
   const oldFrames = frames.map(f => {
     const c = document.createElement('canvas');
     c.width = c.height = size;
-    c.getContext('2d').drawImage(f, 0, 0, gridSize, gridSize, 0, 0, size, size);
+    const ct = c.getContext('2d');
+    ct.imageSmoothingEnabled = false; // keep hard pixel edges when scaling
+    ct.drawImage(f, 0, 0, gridSize, gridSize, 0, 0, size, size);
     return c;
   });
   gridSize = src.width = src.height = size;
   for (let i = 0; i < MAX_FRAMES; i++) {
     frames[i].width = frames[i].height = size;
     frames[i].getContext('2d').drawImage(oldFrames[i], 0, 0);
+    // Snapshots of the old size can't be restored any more
+    frameUndos[i].length = 0; frameRedos[i].length = 0;
   }
   src.getContext('2d').drawImage(frames[currentFrame], 0, 0);
-  undoStack.length = 0; redoStack.length = 0; updateUndoButtons();
+  updateUndoButtons();
+  vp.scale = fitScale();
   clampVP(); render(); renderFrameThumbnails(); updateStatus();
 }
 // ── Clear ──
@@ -388,6 +411,19 @@ function savePNG() {
   c.toBlob(blob => {
     const a = document.createElement('a'), url = URL.createObjectURL(blob);
     a.href = url; a.download = 'pixelart_' + gridSize + '.png'; a.click();
+    URL.revokeObjectURL(url);
+  }, 'image/png');
+}
+
+// ── Sprite sheet export: all frames side by side ──
+function saveSpriteSheet() {
+  saveFrame();
+  const c = document.createElement('canvas'); c.width = gridSize * frameCount; c.height = gridSize;
+  const ct = c.getContext('2d');
+  for (let i = 0; i < frameCount; i++) ct.drawImage(frames[i], i * gridSize, 0);
+  c.toBlob(blob => {
+    const a = document.createElement('a'), url = URL.createObjectURL(blob);
+    a.href = url; a.download = 'spritesheet_' + gridSize + 'x' + frameCount + '.png'; a.click();
     URL.revokeObjectURL(url);
   }, 'image/png');
 }
@@ -459,14 +495,21 @@ btnSymQuad.onclick = toggleSym(btnSymQuad, () => symQuad, v => { symQuad = v; })
 
 // ── Save / Load buttons ──
 document.getElementById('btn-save').onclick = savePNG;
+document.getElementById('btn-sheet').onclick = saveSpriteSheet;
 document.getElementById('btn-load').onclick = () => document.getElementById('file-load').click();
 
 // ── Keyboard shortcuts ──
 document.addEventListener('keydown', e => {
-  if (e.ctrlKey && !e.altKey && !e.metaKey) {
-    if (e.key === 'z' && e.shiftKey) { e.preventDefault(); redo(); }
-    else if (e.key === 'z' || e.key === 'Z') { e.preventDefault(); undo(); }
-    else if (e.key === 's' || e.key === 'S') { e.preventDefault(); savePNG(); }
+  if (e.target.tagName === 'INPUT') return;
+  const mod = (e.ctrlKey || e.metaKey) && !e.altKey;
+  const k = e.key.toLowerCase();
+  if (mod) {
+    if ((k === 'z' && e.shiftKey) || k === 'y') { e.preventDefault(); redo(); }
+    else if (k === 'z') { e.preventDefault(); undo(); }
+    else if (k === 's') { e.preventDefault(); savePNG(); }
+  } else if (!e.altKey) {
+    const toolKeys = { b: 'btn-draw', e: 'btn-erase', f: 'btn-fill' };
+    if (toolKeys[k]) document.getElementById(toolKeys[k]).click();
   }
 });
 
@@ -487,9 +530,7 @@ function initFrames() {
   }
   frames[0].getContext('2d').drawImage(src, 0, 0);
   currentFrame = 0; frameCount = 1;
-  // Set baseline undo snapshot for frame 0
   undoStack = frameUndos[0]; redoStack = frameRedos[0];
-  undoStack.push(frames[0].getContext('2d').getImageData(0, 0, gridSize, gridSize));
   renderFrameThumbnails(); updateUndoButtons();
 }
 function saveFrame() {
@@ -592,6 +633,7 @@ function startAnim() {
   previewCanvas.style.borderColor = '#1a508b';
   animInterval = setInterval(() => {
     animFrame = (animFrame + 1) % frameCount;
+    pctx.imageSmoothingEnabled = false;
     pctx.clearRect(0, 0, 64, 64);
     pctx.drawImage(frames[animFrame], 0, 0, gridSize, gridSize, 0, 0, 64, 64);
   }, 100);
@@ -601,8 +643,14 @@ function stopAnim() {
   animRunning = false; clearInterval(animInterval); animInterval = null;
   previewCanvas.style.borderColor = '#0f3460';
   document.getElementById('btn-play').textContent = '\u25b6';
+  updatePreview();
+}
+// While the animation is stopped, the preview shows the frame being edited
+function updatePreview() {
+  if (animRunning) return;
+  pctx.imageSmoothingEnabled = false;
   pctx.clearRect(0, 0, 64, 64);
-  pctx.drawImage(frames[currentFrame], 0, 0, gridSize, gridSize, 0, 0, 64, 64);
+  pctx.drawImage(src, 0, 0, gridSize, gridSize, 0, 0, 64, 64);
 }
 function toggleAnim() { animRunning ? stopAnim() : startAnim(); }
 document.getElementById('btn-play').onclick = toggleAnim;
@@ -624,6 +672,7 @@ function updateStatus() {
 // ── Init ──
 initFrames();
 paletteGrid.querySelector('.swatch')?.click();
+vp.scale = fitScale(); clampVP();
 updateCursor(); render(); updateStatus(); updateCanvasSize();
 </script>
 
